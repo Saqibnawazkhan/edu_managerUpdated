@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "984706247216",
+    "project_id": "edu-manager-5b742",
+    "storage_bucket": "edu-manager-5b742.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:984706247216:android:596bef7c43196f57715bf5",
+        "android_client_info": {
+          "package_name": "com.example.edu_manager"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCE5gg6MTnGso-rpOlm8uB37-d3Xoe2_QA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

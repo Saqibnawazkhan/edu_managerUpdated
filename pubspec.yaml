@@ -1,0 +1,43 @@
+name: flutter_class_app
+description: A Flutter class management application
+
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Updated Firebase versions
+  firebase_core: ^3.8.1
+  firebase_auth: ^5.3.3
+  cloud_firestore: ^5.5.2
+  firebase_storage: ^12.3.6  # Add this for image storage
+  provider: ^6.1.1
+  cupertino_icons: ^1.0.2
+  table_calendar: ^3.0.9  # Add this for calendar
+  url_launcher: ^6.2.2    # Add this for WhatsApp
+  intl: ^0.19.0
+  android_intent_plus: ^5.1.0
+  fl_chart: ^0.65.0  # Add this for charts
+  image_picker: ^1.1.2  # Add this for picking images
+  local_auth: ^2.2.0  # Add this for biometric authentication
+  flutter_secure_storage: ^9.0.0
+  pdf: ^3.11.1              # Add this
+  path_provider: ^2.1.4      # Add this
+  share_plus: ^10.1.2
+  excel: ^4.0.6              # For Excel export/import
+  file_picker: ^8.1.3        # For picking files to import
+  syncfusion_flutter_pdf: ^27.1.58  # For PDF text extraction
+
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
