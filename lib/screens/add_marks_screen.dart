@@ -25,7 +25,8 @@ class AddMarksScreenBulk extends StatefulWidget {
   State<AddMarksScreenBulk> createState() => _AddMarksScreenBulkState();
 }
 
-class _AddMarksScreenBulkState extends State<AddMarksScreenBulk> {
+class _AddMarksScreenBulkState extends State<AddMarksScreenBulk>
+    with TickerProviderStateMixin {
   final _assessmentNameController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _totalMarksController = TextEditingController();
@@ -36,12 +37,23 @@ class _AddMarksScreenBulkState extends State<AddMarksScreenBulk> {
   List<StudentModel> _students = [];
   Map<String, TextEditingController> _marksControllers = {};
   bool _isLoading = true;
+  bool _isSaving = false;
+
+  late AnimationController _saveButtonController;
+  late Animation<double> _saveButtonScale;
 
   @override
   void initState() {
     super.initState();
 
-    // If editing, pre-fill fields
+    _saveButtonController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 150),
+    );
+    _saveButtonScale = Tween<double>(begin: 1.0, end: 0.95).animate(
+      CurvedAnimation(parent: _saveButtonController, curve: Curves.easeInOut),
+    );
+
     if (widget.assessmentToEdit != null) {
       _assessmentNameController.text = widget.assessmentToEdit!.assessmentName;
       _descriptionController.text = widget.assessmentToEdit!.description ?? '';
@@ -62,7 +74,6 @@ class _AddMarksScreenBulkState extends State<AddMarksScreenBulk> {
     final studentService = Provider.of<StudentService>(context, listen: false);
     final students = await studentService.getStudents(widget.classItem.id).first;
 
-    // Sort students alphabetically by name
     students.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
     setState(() {
@@ -70,15 +81,13 @@ class _AddMarksScreenBulkState extends State<AddMarksScreenBulk> {
       for (var student in students) {
         _marksControllers[student.id] = TextEditingController();
 
-        // If editing, pre-fill marks for each student
         if (widget.existingMarks != null) {
           final studentMark = widget.existingMarks!.firstWhere(
-                (mark) => mark.studentId == student.id,
-            orElse: () => widget.existingMarks!.first, // Fallback
+            (mark) => mark.studentId == student.id,
+            orElse: () => widget.existingMarks!.first,
           );
           if (studentMark.studentId == student.id) {
-            _marksControllers[student.id]!.text =
-                studentMark.obtainedMarks.toStringAsFixed(0);
+            _marksControllers[student.id]!.text = studentMark.obtainedMarks.toStringAsFixed(0);
           }
         }
       }
@@ -91,6 +100,7 @@ class _AddMarksScreenBulkState extends State<AddMarksScreenBulk> {
     _assessmentNameController.dispose();
     _descriptionController.dispose();
     _totalMarksController.dispose();
+    _saveButtonController.dispose();
     for (var controller in _marksControllers.values) {
       controller.dispose();
     }
@@ -98,72 +108,85 @@ class _AddMarksScreenBulkState extends State<AddMarksScreenBulk> {
   }
 
   Future<void> _selectDate(BuildContext context) async {
+    HapticFeedback.selectionClick();
     final DateTime? picked = await showDatePicker(
       context: context,
       initialDate: _selectedDate,
       firstDate: DateTime(2020),
       lastDate: DateTime(2030),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: AppTheme.primaryPurple,
+              onPrimary: Colors.white,
+              surface: Colors.white,
+              onSurface: AppTheme.textDark,
+            ),
+          ),
+          child: child!,
+        );
+      },
     );
     if (picked != null && picked != _selectedDate) {
-      setState(() {
-        _selectedDate = picked;
-      });
+      HapticFeedback.lightImpact();
+      setState(() => _selectedDate = picked);
     }
   }
 
+  void _showSnackBar(String message, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(
+              color == Colors.red ? Icons.error_outline : Icons.check_circle_outline,
+              color: Colors.white,
+            ),
+            const SizedBox(width: 12),
+            Expanded(child: Text(message)),
+          ],
+        ),
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
+
   Future<void> _saveMarks() async {
-    // Validate common fields
     if (_assessmentNameController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter assessment name')),
-      );
+      HapticFeedback.heavyImpact();
+      _showSnackBar('Please enter assessment name', Colors.red);
       return;
     }
 
     if (_totalMarksController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter total marks')),
-      );
+      HapticFeedback.heavyImpact();
+      _showSnackBar('Please enter total marks', Colors.red);
       return;
     }
 
     final totalMarks = double.parse(_totalMarksController.text);
 
-    // Get all students with marks (no selection, all required)
     List<Map<String, dynamic>> studentsWithMarks = [];
     for (var student in _students) {
       final marksText = _marksControllers[student.id]!.text;
 
-      // Skip if empty (allow optional entry)
-      if (marksText.isEmpty) {
-        continue;
-      }
+      if (marksText.isEmpty) continue;
 
       final obtainedMarks = double.parse(marksText);
 
-      // Validate: obtained marks cannot be negative
       if (obtainedMarks < 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              '${student.name}: Marks cannot be negative',
-            ),
-            backgroundColor: Colors.red,
-          ),
-        );
+        HapticFeedback.heavyImpact();
+        _showSnackBar('${student.name}: Marks cannot be negative', Colors.red);
         return;
       }
 
-      // Validate: obtained marks cannot be greater than total marks
       if (obtainedMarks > totalMarks) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              '${student.name}: Marks cannot be greater than total marks ($totalMarks)',
-            ),
-            backgroundColor: Colors.red,
-          ),
-        );
+        HapticFeedback.heavyImpact();
+        _showSnackBar('${student.name}: Marks cannot exceed $totalMarks', Colors.red);
         return;
       }
 
@@ -174,25 +197,17 @@ class _AddMarksScreenBulkState extends State<AddMarksScreenBulk> {
     }
 
     if (studentsWithMarks.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter marks for at least one student')),
-      );
+      HapticFeedback.heavyImpact();
+      _showSnackBar('Please enter marks for at least one student', Colors.orange);
       return;
     }
 
-    // Show loading
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const Center(
-        child: CircularProgressIndicator(),
-      ),
-    );
+    setState(() => _isSaving = true);
+    HapticFeedback.mediumImpact();
 
     final marksService = Provider.of<MarksService>(context, listen: false);
     final dateString = DateFormat('dd/MM/yyyy').format(_selectedDate);
 
-    // Save or update marks for each student with entered marks
     bool isEditMode = widget.existingMarks != null && widget.existingMarks!.isNotEmpty;
 
     for (var item in studentsWithMarks) {
@@ -202,14 +217,12 @@ class _AddMarksScreenBulkState extends State<AddMarksScreenBulk> {
       String? error;
 
       if (isEditMode) {
-        // Find existing mark for this student
         final existingMark = widget.existingMarks!.firstWhere(
-              (mark) => mark.studentId == student.id,
+          (mark) => mark.studentId == student.id,
           orElse: () => widget.existingMarks!.first,
         );
 
         if (existingMark.studentId == student.id) {
-          // Update existing mark
           error = await marksService.updateMarks(
             marksId: existingMark.id,
             assessmentName: _assessmentNameController.text,
@@ -220,7 +233,6 @@ class _AddMarksScreenBulkState extends State<AddMarksScreenBulk> {
             date: dateString,
           );
         } else {
-          // Student didn't have mark before, add new
           error = await marksService.addMarks(
             classId: widget.classItem.id,
             studentId: student.id,
@@ -233,7 +245,6 @@ class _AddMarksScreenBulkState extends State<AddMarksScreenBulk> {
           );
         }
       } else {
-        // Add new mark
         error = await marksService.addMarks(
           classId: widget.classItem.id,
           studentId: student.id,
@@ -247,21 +258,34 @@ class _AddMarksScreenBulkState extends State<AddMarksScreenBulk> {
       }
 
       if (error != null) {
-        Navigator.pop(context); // Close loading
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving marks for ${student.name}: $error')),
-        );
+        setState(() => _isSaving = false);
+        HapticFeedback.heavyImpact();
+        _showSnackBar('Error saving marks for ${student.name}', Colors.red);
         return;
       }
     }
 
-    Navigator.pop(context); // Close loading
-    Navigator.pop(context); // Close screen
+    setState(() => _isSaving = false);
+
+    if (!mounted) return;
+
+    HapticFeedback.lightImpact();
+    Navigator.pop(context);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(isEditMode
-            ? 'Marks updated for ${studentsWithMarks.length} students'
-            : 'Marks saved for ${studentsWithMarks.length} students'),
+        content: Row(
+          children: [
+            const Icon(Icons.check_circle, color: Colors.white),
+            const SizedBox(width: 12),
+            Text(isEditMode
+                ? 'Marks updated for ${studentsWithMarks.length} students'
+                : 'Marks saved for ${studentsWithMarks.length} students'),
+          ],
+        ),
+        backgroundColor: const Color(0xFF4CAF50),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(16),
       ),
     );
   }
@@ -269,293 +293,154 @@ class _AddMarksScreenBulkState extends State<AddMarksScreenBulk> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppTheme.backgroundLight,
+      backgroundColor: const Color(0xFFF8F9FE),
       body: SafeArea(
         child: Column(
           children: [
-            // Custom App Bar
-            Padding(
-              padding: const EdgeInsets.all(AppTheme.spacing16),
-              child: Row(
-                children: [
-                  Container(
-                    decoration: BoxDecoration(
-                      color: AppTheme.cardWhite,
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: AppTheme.softShadow,
-                    ),
-                    child: IconButton(
-                      icon: const Icon(Icons.arrow_back_rounded),
-                      onPressed: () => Navigator.pop(context),
-                      color: AppTheme.textDark,
-                    ),
-                  ),
-                  const SizedBox(width: AppTheme.spacing12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          widget.classItem.name,
-                          style: AppTheme.heading2,
-                        ),
-                        Text(
-                          widget.assessmentToEdit != null ? 'Edit Marks' : 'Add Marks',
-                          style: AppTheme.bodySmall,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // Content
+            _buildHeader(),
             Expanded(
               child: _isLoading
                   ? const Center(
-                child: CircularProgressIndicator(
-                  color: AppTheme.primaryPurple,
-                ),
-              )
+                      child: CircularProgressIndicator(color: AppTheme.primaryPurple),
+                    )
                   : SingleChildScrollView(
-                padding: const EdgeInsets.all(AppTheme.spacing16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Assessment Type Selector
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildTypeButton('mock', 'Mock', Icons.quiz_outlined),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _buildTypeButton('assignment', 'Assignment', Icons.assignment_outlined),
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 24),
-
-                    // Assessment Details
-                    Text(
-                      'Assessment Details',
-                      style: AppTheme.heading3,
-                    ),
-                    const SizedBox(height: AppTheme.spacing12),
-
-                    // Assessment Name
-                    TextField(
-                      controller: _assessmentNameController,
-                      decoration: InputDecoration(
-                        labelText: _selectedAssessmentType == 'mock'
-                            ? 'Mock Name (e.g., Mock 1)'
-                            : 'Assignment Name (e.g., Assignment 1)',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-                          borderSide: const BorderSide(color: AppTheme.borderGrey, width: 1.5),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-                          borderSide: const BorderSide(color: AppTheme.borderGrey, width: 1.5),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-                          borderSide: const BorderSide(color: AppTheme.primaryPurple, width: 2),
-                        ),
-                        filled: true,
-                        fillColor: AppTheme.cardWhite,
-                        prefixIcon: Icon(
-                          _selectedAssessmentType == 'mock'
-                              ? Icons.quiz_outlined
-                              : Icons.assignment_outlined,
-                          color: AppTheme.primaryPurple,
-                        ),
+                      physics: const BouncingScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildAssessmentTypeToggle(),
+                          const SizedBox(height: 20),
+                          _buildAssessmentDetailsCard(),
+                          const SizedBox(height: 20),
+                          _buildStudentsHeader(),
+                          const SizedBox(height: 12),
+                          ..._students.map((student) => _buildStudentRow(student)),
+                        ],
                       ),
                     ),
-
-                    const SizedBox(height: AppTheme.spacing12),
-
-                    // Description
-                    TextField(
-                      controller: _descriptionController,
-                      maxLines: 2,
-                      decoration: InputDecoration(
-                        labelText: 'Description (optional)',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-                          borderSide: const BorderSide(color: AppTheme.borderGrey, width: 1.5),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-                          borderSide: const BorderSide(color: AppTheme.borderGrey, width: 1.5),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-                          borderSide: const BorderSide(color: AppTheme.primaryPurple, width: 2),
-                        ),
-                        filled: true,
-                        fillColor: AppTheme.cardWhite,
-                        prefixIcon: const Icon(
-                          Icons.description_outlined,
-                          color: AppTheme.primaryPurple,
-                        ),
-                      ),
-                    ),
-
-                    const SizedBox(height: AppTheme.spacing12),
-
-                    // Total Marks and Date
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _totalMarksController,
-                            keyboardType: TextInputType.number,
-                            decoration: InputDecoration(
-                              labelText: 'Total Marks',
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-                                borderSide: const BorderSide(color: AppTheme.borderGrey, width: 1.5),
-                              ),
-                              enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-                                borderSide: const BorderSide(color: AppTheme.borderGrey, width: 1.5),
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-                                borderSide: const BorderSide(color: AppTheme.primaryPurple, width: 2),
-                              ),
-                              filled: true,
-                              fillColor: AppTheme.cardWhite,
-                              prefixIcon: const Icon(
-                                Icons.grade,
-                                color: AppTheme.primaryPurple,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        // Date Picker
-                        Expanded(
-                          child: GestureDetector(
-                            onTap: () => _selectDate(context),
-                            child: Container(
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: AppTheme.cardWhite,
-                                borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-                                border: Border.all(
-                                  color: AppTheme.borderGrey,
-                                  width: 1.5,
-                                ),
-                              ),
-                              child: Row(
-                                children: [
-                                  const Icon(Icons.calendar_today, color: AppTheme.primaryPurple, size: 20),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      DateFormat('dd/MM/yyyy').format(_selectedDate),
-                                      style: AppTheme.bodyMedium.copyWith(
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 24),
-
-                    // Students List Header
-                    Text(
-                      'Students (${_students.length})',
-                      style: AppTheme.heading3,
-                    ),
-                    const SizedBox(height: 12),
-
-                    // Students List
-                    ..._students.map((student) => _buildStudentRow(student)).toList(),
-                  ],
-                ),
-              ),
             ),
-
-            // Save Button
-            Padding(
-              padding: const EdgeInsets.all(AppTheme.spacing16),
-              child: SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _saveMarks,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.primaryPurple,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-                    ),
-                  ),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.save, color: Colors.white),
-                      SizedBox(width: 8),
-                      Text(
-                        'Save Marks',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+            _buildSaveButton(),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          GestureDetector(
+            onTapDown: (_) => HapticFeedback.selectionClick(),
+            onTap: () {
+              HapticFeedback.lightImpact();
+              Navigator.pop(context);
+            },
+            child: Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.08),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: const Icon(Icons.arrow_back_rounded, color: AppTheme.textDark, size: 22),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  widget.classItem.name,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: AppTheme.textDark,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  widget.assessmentToEdit != null ? 'Edit Marks' : 'Add Marks',
+                  style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAssessmentTypeToggle() {
+    return Container(
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(child: _buildTypeButton('mock', 'Mock', Icons.quiz_rounded)),
+          Expanded(child: _buildTypeButton('assignment', 'Assignment', Icons.assignment_rounded)),
+        ],
       ),
     );
   }
 
   Widget _buildTypeButton(String type, String label, IconData icon) {
     final isSelected = _selectedAssessmentType == type;
-    return InkWell(
+    return GestureDetector(
+      onTapDown: (_) => HapticFeedback.selectionClick(),
       onTap: () {
-        setState(() {
-          _selectedAssessmentType = type;
-        });
+        if (!isSelected) {
+          HapticFeedback.lightImpact();
+          setState(() => _selectedAssessmentType = type);
+        }
       },
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 16),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(vertical: 14),
         decoration: BoxDecoration(
-          color: isSelected ? AppTheme.primaryPurple : AppTheme.cardWhite,
-          borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-          border: Border.all(
-            color: isSelected ? AppTheme.primaryPurple : AppTheme.borderGrey,
-            width: isSelected ? 2 : 1,
-          ),
+          color: isSelected ? AppTheme.primaryPurple : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: AppTheme.primaryPurple.withValues(alpha: 0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+              : null,
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              icon,
-              color: isSelected ? Colors.white : AppTheme.primaryPurple,
-            ),
+            Icon(icon, size: 20, color: isSelected ? Colors.white : Colors.grey[600]),
             const SizedBox(width: 8),
             Text(
               label,
               style: TextStyle(
-                color: isSelected ? Colors.white : AppTheme.textDark,
-                fontWeight: FontWeight.bold,
+                color: isSelected ? Colors.white : Colors.grey[600],
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
               ),
             ),
           ],
@@ -564,8 +449,208 @@ class _AddMarksScreenBulkState extends State<AddMarksScreenBulk> {
     );
   }
 
+  Widget _buildAssessmentDetailsCard() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Assessment Details',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: AppTheme.textDark,
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Assessment Name
+          _buildInputField(
+            controller: _assessmentNameController,
+            label: _selectedAssessmentType == 'mock' ? 'Mock Name' : 'Assignment Name',
+            hint: _selectedAssessmentType == 'mock' ? 'e.g., Mock 1' : 'e.g., Assignment 1',
+            icon: _selectedAssessmentType == 'mock' ? Icons.quiz_rounded : Icons.assignment_rounded,
+          ),
+
+          const SizedBox(height: 14),
+
+          // Total Marks and Date Row
+          Row(
+            children: [
+              Expanded(
+                child: _buildInputField(
+                  controller: _totalMarksController,
+                  label: 'Total Marks',
+                  hint: '100',
+                  icon: Icons.stars_rounded,
+                  iconColor: const Color(0xFFFFB300),
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: GestureDetector(
+                  onTapDown: (_) => HapticFeedback.selectionClick(),
+                  onTap: () => _selectDate(context),
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[50],
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey[200]!),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE3F2FD),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(
+                            Icons.calendar_today_rounded,
+                            color: Color(0xFF2196F3),
+                            size: 18,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Date',
+                                style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                              ),
+                              Text(
+                                DateFormat('dd MMM').format(_selectedDate),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 14),
+
+          // Description (Optional)
+          _buildInputField(
+            controller: _descriptionController,
+            label: 'Notes (Optional)',
+            hint: 'Add any notes...',
+            icon: Icons.note_rounded,
+            maxLines: 2,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInputField({
+    required TextEditingController controller,
+    required String label,
+    required String hint,
+    required IconData icon,
+    Color? iconColor,
+    TextInputType? keyboardType,
+    List<TextInputFormatter>? inputFormatters,
+    int maxLines = 1,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey[200]!),
+      ),
+      child: Row(
+        crossAxisAlignment: maxLines > 1 ? CrossAxisAlignment.start : CrossAxisAlignment.center,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: (iconColor ?? AppTheme.primaryPurple).withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, color: iconColor ?? AppTheme.primaryPurple, size: 18),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: TextField(
+              controller: controller,
+              keyboardType: keyboardType,
+              inputFormatters: inputFormatters,
+              maxLines: maxLines,
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+              decoration: InputDecoration(
+                labelText: label,
+                hintText: hint,
+                hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
+                labelStyle: TextStyle(color: Colors.grey[600], fontSize: 13),
+                border: InputBorder.none,
+                contentPadding: EdgeInsets.zero,
+                isDense: true,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStudentsHeader() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        const Text(
+          'Students',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: AppTheme.textDark,
+          ),
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: AppTheme.lightPurple,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Text(
+            '${_students.length}',
+            style: const TextStyle(
+              color: AppTheme.primaryPurple,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildStudentRow(StudentModel student) {
-    // Check if marks are invalid (negative or exceed total marks)
     bool isInvalid = false;
     String? errorMessage;
     final marksText = _marksControllers[student.id]!.text;
@@ -574,123 +659,215 @@ class _AddMarksScreenBulkState extends State<AddMarksScreenBulk> {
     if (marksText.isNotEmpty) {
       try {
         final obtainedMarks = double.parse(marksText);
-
-        // Check for negative marks
         if (obtainedMarks < 0) {
           isInvalid = true;
-          errorMessage = 'Cannot be negative';
-        }
-        // Check if exceeds total marks
-        else if (totalMarksText.isNotEmpty) {
+          errorMessage = 'Negative';
+        } else if (totalMarksText.isNotEmpty) {
           final totalMarks = double.parse(totalMarksText);
           if (obtainedMarks > totalMarks) {
             isInvalid = true;
-            errorMessage = 'Exceeds total';
+            errorMessage = 'Max: $totalMarksText';
           }
         }
       } catch (e) {
-        // Invalid number format
+        // Invalid format
       }
     }
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 300),
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(12),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: isInvalid ? Colors.red.withOpacity(0.05) : AppTheme.cardWhite,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: isInvalid ? Colors.red : AppTheme.borderGrey,
-          width: isInvalid ? 2 : 1.5,
-        ),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: isInvalid ? Border.all(color: Colors.red, width: 2) : null,
+        boxShadow: [
+          BoxShadow(
+            color: isInvalid
+                ? Colors.red.withValues(alpha: 0.1)
+                : Colors.black.withValues(alpha: 0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Row(
         children: [
-          // Student Name
-          Expanded(
-            flex: 2,
-            child: Text(
-              student.name,
-              style: AppTheme.bodyMedium.copyWith(
-                fontWeight: FontWeight.w600,
-                color: isInvalid ? Colors.red : AppTheme.textDark,
+          // Avatar
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: isInvalid
+                  ? Colors.red.withValues(alpha: 0.1)
+                  : AppTheme.primaryPurple.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Center(
+              child: Text(
+                student.name.isNotEmpty ? student.name[0].toUpperCase() : '?',
+                style: TextStyle(
+                  color: isInvalid ? Colors.red : AppTheme.primaryPurple,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
               ),
             ),
           ),
           const SizedBox(width: 12),
-          // Marks Input
+
+          // Name
           Expanded(
-            child: TextField(
-              controller: _marksControllers[student.id],
-              keyboardType: TextInputType.number,
-              onChanged: (value) {
-                // Check if value is invalid (negative or exceeds total marks)
-                if (value.isNotEmpty) {
-                  try {
-                    final obtainedMarks = double.parse(value);
-                    // Check for negative or exceeding total marks
-                    if (obtainedMarks < 0) {
-                      HapticFeedback.heavyImpact();
-                    } else if (_totalMarksController.text.isNotEmpty) {
-                      final totalMarks = double.parse(_totalMarksController.text);
-                      if (obtainedMarks > totalMarks) {
-                        HapticFeedback.heavyImpact();
-                      }
-                    }
-                  } catch (e) {
-                    // Invalid number format
-                  }
-                }
-                // Trigger rebuild to update border color
-                setState(() {});
-              },
-              decoration: InputDecoration(
-                hintText: 'Marks',
-                errorText: isInvalid ? errorMessage : null,
-                errorStyle: const TextStyle(fontSize: 10, height: 0.5),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(
-                    color: isInvalid ? Colors.red : AppTheme.borderGrey,
-                    width: 2,
-                  ),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(
-                    color: isInvalid ? Colors.red : AppTheme.borderGrey,
-                    width: isInvalid ? 2 : 1,
-                  ),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(
-                    color: isInvalid ? Colors.red : AppTheme.primaryPurple,
-                    width: 2,
-                  ),
-                ),
-                errorBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: Colors.red, width: 2),
-                ),
-                focusedErrorBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: Colors.red, width: 2),
-                ),
-                filled: true,
-                fillColor: isInvalid
-                    ? Colors.red.withOpacity(0.05)
-                    : AppTheme.cardWhite,
-              ),
-              style: AppTheme.bodyMedium.copyWith(
-                fontWeight: FontWeight.bold,
+            child: Text(
+              student.name,
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 15,
                 color: isInvalid ? Colors.red : AppTheme.textDark,
               ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+
+          // Marks Input
+          SizedBox(
+            width: 80,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    color: isInvalid ? Colors.red.withValues(alpha: 0.1) : Colors.grey[100],
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: isInvalid ? Colors.red : Colors.grey[300]!,
+                      width: isInvalid ? 2 : 1,
+                    ),
+                  ),
+                  child: TextField(
+                    controller: _marksControllers[student.id],
+                    keyboardType: const TextInputType.numberWithOptions(decimal: false, signed: false),
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: isInvalid ? Colors.red : AppTheme.textDark,
+                    ),
+                    onChanged: (value) {
+                      if (value.isNotEmpty && totalMarksText.isNotEmpty) {
+                        try {
+                          final obtained = double.parse(value);
+                          final total = double.parse(totalMarksText);
+                          if (obtained > total || obtained < 0) {
+                            HapticFeedback.heavyImpact();
+                          }
+                        } catch (e) {
+                          // Ignore
+                        }
+                      }
+                      setState(() {});
+                    },
+                    decoration: const InputDecoration(
+                      hintText: '—',
+                      border: InputBorder.none,
+                      contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                    ),
+                  ),
+                ),
+                if (isInvalid && errorMessage != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      errorMessage,
+                      style: const TextStyle(color: Colors.red, fontSize: 10),
+                    ),
+                  ),
+              ],
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSaveButton() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, -4),
+          ),
+        ],
+      ),
+      child: GestureDetector(
+        onTapDown: (_) {
+          HapticFeedback.selectionClick();
+          _saveButtonController.forward();
+        },
+        onTapUp: (_) => _saveButtonController.reverse(),
+        onTapCancel: () => _saveButtonController.reverse(),
+        onTap: _isSaving ? null : _saveMarks,
+        child: AnimatedBuilder(
+          animation: _saveButtonScale,
+          builder: (context, child) {
+            return Transform.scale(
+              scale: _saveButtonScale.value,
+              child: Container(
+                height: 56,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      AppTheme.primaryPurple,
+                      AppTheme.primaryPurple.withValues(alpha: 0.8),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppTheme.primaryPurple.withValues(alpha: 0.4),
+                      blurRadius: 12,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: Center(
+                  child: _isSaving
+                      ? const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2.5,
+                          ),
+                        )
+                      : Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.check_rounded, color: Colors.white, size: 24),
+                            const SizedBox(width: 10),
+                            Text(
+                              widget.assessmentToEdit != null ? 'Update Marks' : 'Save Marks',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 17,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                ),
+              ),
+            );
+          },
+        ),
       ),
     );
   }
