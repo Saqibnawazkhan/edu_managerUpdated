@@ -34,6 +34,21 @@ class ClassService extends ChangeNotifier {
         return 'error:User not authenticated';
       }
 
+      // Check if class with same name already exists (case-insensitive)
+      final existingClasses = await _firestore
+          .collection('classes')
+          .where('userId', isEqualTo: userId)
+          .get();
+
+      final duplicateExists = existingClasses.docs.any((doc) {
+        final existingName = (doc.data()['name'] as String?)?.toLowerCase() ?? '';
+        return existingName == name.toLowerCase();
+      });
+
+      if (duplicateExists) {
+        return 'error:A class with this name already exists';
+      }
+
       final docRef = await _firestore.collection('classes').add({
         'name': name,
         'userId': userId,
@@ -50,6 +65,28 @@ class ClassService extends ChangeNotifier {
   // Update class name
   Future<String?> updateClass(String classId, String name) async {
     try {
+      final userId = _auth.currentUser?.uid;
+      if (userId == null) {
+        return 'User not authenticated';
+      }
+
+      // Check if another class with same name already exists (case-insensitive)
+      final existingClasses = await _firestore
+          .collection('classes')
+          .where('userId', isEqualTo: userId)
+          .get();
+
+      final duplicateExists = existingClasses.docs.any((doc) {
+        // Skip the current class being updated
+        if (doc.id == classId) return false;
+        final existingName = (doc.data()['name'] as String?)?.toLowerCase() ?? '';
+        return existingName == name.toLowerCase();
+      });
+
+      if (duplicateExists) {
+        return 'A class with this name already exists';
+      }
+
       await _firestore.collection('classes').doc(classId).update({
         'name': name,
       });

@@ -31,6 +31,28 @@
 
   <title>edu_manager</title>
   <link rel="manifest" href="manifest.json">
+
+  <!-- Firebase Configuration -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-storage-compat.js"></script>
+  <script>
+    // Your web app's Firebase configuration
+    // NOTE: You need to add a Web app in Firebase Console to get the appId
+    // Go to: Firebase Console > Project Settings > General > Your apps > Add app > Web
+    const firebaseConfig = {
+      apiKey: "AIzaSyCE5gg6MTnGso-rpOlm8uB37-d3Xoe2_QA",
+      authDomain: "edu-manager-5b742.firebaseapp.com",
+      projectId: "edu-manager-5b742",
+      storageBucket: "edu-manager-5b742.firebasestorage.app",
+      messagingSenderId: "984706247216",
+      appId: "1:984706247216:web:c3c66409cd439309715bf5"  // Replace with actual web app ID
+    };
+
+    // Initialize Firebase
+    firebase.initializeApp(firebaseConfig);
+  </script>
 </head>
 <body>
   <script src="flutter_bootstrap.js" async></script>

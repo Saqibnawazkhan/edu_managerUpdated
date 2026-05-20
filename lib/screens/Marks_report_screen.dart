@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+import 'dart:io';
 import '../models/class_model.dart';
 import '../models/marks_model.dart';
 import '../models/student_model.dart';
@@ -27,6 +32,35 @@ class _MarksReportScreenState extends State<MarksReportScreen> {
   void initState() {
     super.initState();
     _loadStudentNames();
+  }
+
+  String _getGradeFromPercentage(double percentage) {
+    if (percentage >= 90) return 'A+';
+    if (percentage >= 80) return 'A';
+    if (percentage >= 70) return 'B';
+    if (percentage >= 60) return 'C';
+    if (percentage >= 50) return 'D';
+    if (percentage >= 40) return 'E';
+    return 'U';
+  }
+
+  Color _getGradeColor(String grade) {
+    switch (grade) {
+      case 'A+':
+        return const Color(0xFF2E7D32); // Dark green
+      case 'A':
+        return const Color(0xFF388E3C); // Green
+      case 'B':
+        return const Color(0xFF1976D2); // Blue
+      case 'C':
+        return const Color(0xFFF57C00); // Orange
+      case 'D':
+        return const Color(0xFFE64A19); // Dark orange
+      case 'E':
+        return const Color(0xFFF9A825); // Amber
+      default:
+        return const Color(0xFFC62828); // Red
+    }
   }
 
   Future<void> _loadStudentNames() async {
@@ -638,6 +672,323 @@ class _MarksReportScreenState extends State<MarksReportScreen> {
     );
   }
 
+  Future<void> _exportAssessmentToPdf(
+    MarksModel assessment,
+    List<MarksModel> studentMarksWithData,
+    double classAverage,
+  ) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: CircularProgressIndicator(color: AppTheme.primaryPurple),
+      ),
+    );
+
+    try {
+      final studentService = Provider.of<StudentService>(context, listen: false);
+      final allStudents = await studentService.getStudents(widget.classItem.id).first;
+
+      // Create a map of studentId to marks for quick lookup
+      final Map<String, MarksModel> studentMarksMap = {
+        for (var mark in studentMarksWithData) mark.studentId: mark
+      };
+
+      final pdf = pw.Document();
+      final now = DateTime.now();
+      final formattedDate = '${now.day}/${now.month}/${now.year}';
+
+      // Sort all students alphabetically
+      final sortedStudents = List<StudentModel>.from(allStudents);
+      sortedStudents.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+      final studentsWithMarks = sortedStudents.where((s) => studentMarksMap.containsKey(s.id)).length;
+
+      pdf.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(32),
+          build: (pw.Context context) {
+            return [
+              // Header
+              pw.Container(
+                padding: const pw.EdgeInsets.all(16),
+                decoration: pw.BoxDecoration(
+                  color: PdfColors.purple100,
+                  borderRadius: pw.BorderRadius.circular(8),
+                ),
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      '${widget.classItem.name} - Marks Report',
+                      style: pw.TextStyle(
+                        fontSize: 24,
+                        fontWeight: pw.FontWeight.bold,
+                        color: PdfColors.purple900,
+                      ),
+                    ),
+                    pw.SizedBox(height: 8),
+                    pw.Text(
+                      'Assessment: ${assessment.assessmentName}',
+                      style: pw.TextStyle(
+                        fontSize: 14,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    pw.SizedBox(height: 4),
+                    pw.Text(
+                      'Date: ${assessment.date}',
+                      style: const pw.TextStyle(fontSize: 12),
+                    ),
+                    pw.SizedBox(height: 4),
+                    pw.Text(
+                      'Generated on: $formattedDate',
+                      style: const pw.TextStyle(
+                        fontSize: 10,
+                        color: PdfColors.grey700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              pw.SizedBox(height: 24),
+
+              // Summary
+              pw.Container(
+                padding: const pw.EdgeInsets.all(16),
+                decoration: pw.BoxDecoration(
+                  color: PdfColors.grey100,
+                  borderRadius: pw.BorderRadius.circular(8),
+                ),
+                child: pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceEvenly,
+                  children: [
+                    pw.Column(children: [
+                      pw.Text(
+                        '${allStudents.length}',
+                        style: pw.TextStyle(
+                          fontSize: 24,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
+                      ),
+                      pw.Text('Total Students'),
+                    ]),
+                    pw.Column(children: [
+                      pw.Text(
+                        '$studentsWithMarks',
+                        style: pw.TextStyle(
+                          fontSize: 24,
+                          fontWeight: pw.FontWeight.bold,
+                          color: PdfColors.green,
+                        ),
+                      ),
+                      pw.Text('Students with Marks'),
+                    ]),
+                    pw.Column(children: [
+                      pw.Text(
+                        '${classAverage.toStringAsFixed(1)}%',
+                        style: pw.TextStyle(
+                          fontSize: 24,
+                          fontWeight: pw.FontWeight.bold,
+                          color: classAverage >= 75
+                              ? PdfColors.green
+                              : classAverage >= 50
+                              ? PdfColors.orange
+                              : PdfColors.red,
+                        ),
+                      ),
+                      pw.Text('Class Average'),
+                    ]),
+                  ],
+                ),
+              ),
+
+              pw.SizedBox(height: 24),
+
+              // Student marks table
+              pw.Table(
+                border: pw.TableBorder.all(color: PdfColors.grey300),
+                columnWidths: {
+                  0: const pw.FlexColumnWidth(3),
+                  1: const pw.FlexColumnWidth(2),
+                  2: const pw.FlexColumnWidth(1.5),
+                  3: const pw.FlexColumnWidth(1),
+                },
+                children: [
+                  // Header
+                  pw.TableRow(
+                    decoration: const pw.BoxDecoration(color: PdfColors.grey200),
+                    children: [
+                      _buildTableCell('Student Name', isHeader: true),
+                      _buildTableCell('Marks', isHeader: true),
+                      _buildTableCell('Percentage', isHeader: true),
+                      _buildTableCell('Grade', isHeader: true),
+                    ],
+                  ),
+                  // Data rows - include ALL students
+                  ...sortedStudents.map((student) {
+                    final mark = studentMarksMap[student.id];
+
+                    if (mark == null) {
+                      // Student was absent
+                      return pw.TableRow(
+                        decoration: pw.BoxDecoration(
+                          color: PdfColors.red50,
+                        ),
+                        children: [
+                          _buildTableCell(student.name),
+                          _buildTableCell('Absent', color: PdfColors.red700),
+                          _buildTableCell('-', color: PdfColors.red700),
+                          _buildTableCell('-', color: PdfColors.red700),
+                        ],
+                      );
+                    } else {
+                      // Student has marks
+                      final percentage = (mark.obtainedMarks / mark.totalMarks * 100);
+                      final grade = _getGradeFromPercentage(percentage);
+                      return pw.TableRow(
+                        children: [
+                          _buildTableCell(student.name),
+                          _buildTableCell(
+                            '${mark.obtainedMarks.toStringAsFixed(0)}/${mark.totalMarks.toStringAsFixed(0)}',
+                          ),
+                          _buildTableCell(
+                            '${percentage.toStringAsFixed(1)}%',
+                            color: percentage >= 80
+                                ? PdfColors.green700
+                                : percentage >= 60
+                                ? PdfColors.orange700
+                                : percentage >= 40
+                                ? PdfColors.amber700
+                                : PdfColors.red700,
+                          ),
+                          _buildTableCell(
+                            grade,
+                            color: _getGradeColorPdf(grade),
+                          ),
+                        ],
+                      );
+                    }
+                  }),
+                ],
+              ),
+
+              pw.SizedBox(height: 24),
+
+              // Footer
+              pw.Container(
+                padding: const pw.EdgeInsets.all(12),
+                decoration: pw.BoxDecoration(
+                  color: PdfColors.grey100,
+                  borderRadius: pw.BorderRadius.circular(8),
+                ),
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      'Grading Scale',
+                      style: pw.TextStyle(
+                        fontSize: 12,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    pw.SizedBox(height: 4),
+                    pw.Text('A+: 90% - 100%', style: const pw.TextStyle(fontSize: 10)),
+                    pw.Text('A: 80% - 89%', style: const pw.TextStyle(fontSize: 10)),
+                    pw.Text('B: 70% - 79%', style: const pw.TextStyle(fontSize: 10)),
+                    pw.Text('C: 60% - 69%', style: const pw.TextStyle(fontSize: 10)),
+                    pw.Text('D: 50% - 59%', style: const pw.TextStyle(fontSize: 10)),
+                    pw.Text('E: 40% - 49%', style: const pw.TextStyle(fontSize: 10)),
+                    pw.Text('U: 0% - 39%', style: const pw.TextStyle(fontSize: 10)),
+                    pw.SizedBox(height: 8),
+                    pw.Center(
+                      child: pw.Text(
+                        'Generated by Edu Manager',
+                        style: const pw.TextStyle(
+                          fontSize: 10,
+                          color: PdfColors.grey600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ];
+          },
+        ),
+      );
+
+      // Save and share PDF
+      final output = await getTemporaryDirectory();
+      final file = File('${output.path}/${widget.classItem.name}_${assessment.assessmentName.replaceAll(' ', '_')}_Report.pdf');
+      await file.writeAsBytes(await pdf.save());
+
+      if (mounted) {
+        Navigator.pop(context); // Close loading dialog
+        await Share.shareXFiles(
+          [XFile(file.path)],
+          subject: '${widget.classItem.name} - ${assessment.assessmentName} Report',
+        );
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Assessment report exported successfully!'),
+            backgroundColor: AppTheme.success,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context); // Close loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error exporting PDF: $e'),
+            backgroundColor: AppTheme.error,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+      }
+    }
+  }
+
+  PdfColor _getGradeColorPdf(String grade) {
+    switch (grade) {
+      case 'A+':
+        return PdfColors.green800;
+      case 'A':
+        return PdfColors.green700;
+      case 'B':
+        return PdfColors.blue700;
+      case 'C':
+        return PdfColors.orange700;
+      case 'D':
+        return PdfColors.orange900;
+      case 'E':
+        return PdfColors.amber900;
+      default:
+        return PdfColors.red700;
+    }
+  }
+
+  pw.Widget _buildTableCell(String text, {bool isHeader = false, PdfColor? color}) {
+    return pw.Container(
+      padding: const pw.EdgeInsets.all(8),
+      child: pw.Text(
+        text,
+        style: pw.TextStyle(
+          fontSize: isHeader ? 12 : 10,
+          fontWeight: isHeader ? pw.FontWeight.bold : pw.FontWeight.normal,
+          color: color,
+        ),
+      ),
+    );
+  }
+
   void _showAssessmentDetails(
       BuildContext context,
       MarksModel assessment,
@@ -682,9 +1033,26 @@ class _MarksReportScreenState extends State<MarksReportScreen> {
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   children: [
-                    Text(
-                      assessment.assessmentName,
-                      style: AppTheme.heading2,
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            assessment.assessmentName,
+                            style: AppTheme.heading2,
+                          ),
+                        ),
+                        // PDF Export Button
+                        IconButton(
+                          onPressed: () => _exportAssessmentToPdf(assessment, sortedMarks, classAverage),
+                          icon: const Icon(Icons.picture_as_pdf),
+                          color: AppTheme.error,
+                          style: IconButton.styleFrom(
+                            backgroundColor: AppTheme.error.withOpacity(0.1),
+                          ),
+                          tooltip: 'Export to PDF',
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 4),
                     Text(
@@ -770,10 +1138,12 @@ class _MarksReportScreenState extends State<MarksReportScreen> {
                               vertical: 4,
                             ),
                             decoration: BoxDecoration(
-                              color: percentage >= 75
+                              color: percentage >= 80
                                   ? AppTheme.success
-                                  : percentage >= 50
+                                  : percentage >= 60
                                   ? AppTheme.warning
+                                  : percentage >= 40
+                                  ? const Color(0xFFFF9800)
                                   : AppTheme.error,
                               borderRadius: BorderRadius.circular(8),
                             ),
@@ -782,6 +1152,25 @@ class _MarksReportScreenState extends State<MarksReportScreen> {
                               style: AppTheme.bodySmall.copyWith(
                                 color: Colors.white,
                                 fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: _getGradeColor(_getGradeFromPercentage(percentage)),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              _getGradeFromPercentage(percentage),
+                              style: AppTheme.bodySmall.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
                               ),
                             ),
                           ),

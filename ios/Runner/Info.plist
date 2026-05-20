@@ -13,7 +13,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>edu_manager</string>
+	<string>Edu Manager</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -45,5 +45,25 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Edu Manager needs camera access so you can take profile photos and attach images to student records.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Edu Manager needs access to your photo library to set profile pictures and attach images to records.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Edu Manager needs permission to save exported reports (PDF/Excel) to your photo library when you choose to.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Edu Manager uses Face ID to securely sign you in without re-entering your password.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Edu Manager needs access to the Files app so you can import student lists and save exported reports.</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>whatsapp</string>
+		<string>tel</string>
+		<string>mailto</string>
+		<string>https</string>
+		<string>http</string>
+	</array>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>

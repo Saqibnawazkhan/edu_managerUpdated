@@ -2,7 +2,13 @@
   "permissions": {
     "allow": [
       "Bash(flutter pub get:*)",
-      "Bash(flutter analyze:*)"
+      "Bash(flutter analyze:*)",
+      "Bash(flutter build:*)",
+      "Bash(flutter run:*)",
+      "Bash(flutterfire configure:*)",
+      "Bash(dart pub global activate:*)",
+      "Bash(C:UsersMicroZaibAppDataLocalPubCachebinflutterfire configure --platforms=web --project=edu-manager-5b742 --yes)",
+      "Bash(flutter pub global run:*)"
     ]
   }
 }

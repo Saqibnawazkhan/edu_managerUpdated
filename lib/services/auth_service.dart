@@ -10,11 +10,26 @@ class AuthService extends ChangeNotifier {
   bool _isLoading = false;
   bool get isLoading => _isLoading;
 
+  // Check if current user is an admin
+  Future<bool> isAdmin() async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null) return false;
+
+      final doc = await _firestore.collection('users').doc(user.uid).get();
+      return doc.data()?['isAdmin'] == true;
+    } catch (e) {
+      debugPrint('Error checking admin status: $e');
+      return false;
+    }
+  }
+
   // Register with email and password
   Future<String?> registerWithEmail({
     required String name,
     required String email,
     required String password,
+    Map<String, dynamic>? subscriptionData,
   }) async {
     try {
       _isLoading = true;
@@ -27,11 +42,19 @@ class AuthService extends ChangeNotifier {
 
       if (result.user != null) {
         await result.user!.updateDisplayName(name);
-        await _firestore.collection('users').doc(result.user!.uid).set({
+
+        Map<String, dynamic> userData = {
           'name': name,
           'email': email,
           'createdAt': FieldValue.serverTimestamp(),
-        });
+        };
+
+        // Add subscription data if provided
+        if (subscriptionData != null) {
+          userData['subscription'] = subscriptionData;
+        }
+
+        await _firestore.collection('users').doc(result.user!.uid).set(userData);
       }
 
       _isLoading = false;
@@ -43,6 +66,11 @@ class AuthService extends ChangeNotifier {
       if (e.code == 'email-already-in-use') return 'Email already exists';
       if (e.code == 'weak-password') return 'Password too weak';
       return e.message ?? 'Registration failed';
+    } catch (e) {
+      _isLoading = false;
+      notifyListeners();
+      debugPrint('Registration error: $e');
+      return 'Registration failed';
     }
   }
 
@@ -55,7 +83,25 @@ class AuthService extends ChangeNotifier {
       _isLoading = true;
       notifyListeners();
 
-      await _auth.signInWithEmailAndPassword(email: email, password: password);
+      final result = await _auth.signInWithEmailAndPassword(email: email, password: password);
+
+      // Check if account is disabled
+      if (result.user != null) {
+        final doc = await _firestore.collection('users').doc(result.user!.uid).get();
+        if (doc.exists && doc.data()?['isDisabled'] == true) {
+          // Sign out the user immediately
+          await _auth.signOut();
+          _isLoading = false;
+          notifyListeners();
+          return 'Account has been disabled. Contact administrator.';
+        }
+
+        // Ensure email is saved in Firestore (for users created before email was saved)
+        await _firestore.collection('users').doc(result.user!.uid).set({
+          'email': email,
+          'lastLoginAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
 
       _isLoading = false;
       notifyListeners();
@@ -63,9 +109,16 @@ class AuthService extends ChangeNotifier {
     } on FirebaseAuthException catch (e) {
       _isLoading = false;
       notifyListeners();
+      debugPrint('FirebaseAuthException: ${e.code} - ${e.message}');
       if (e.code == 'user-not-found') return 'No user found';
       if (e.code == 'wrong-password') return 'Wrong password';
+      if (e.code == 'invalid-credential') return 'No user found';
       return e.message ?? 'Login failed';
+    } catch (e) {
+      _isLoading = false;
+      notifyListeners();
+      debugPrint('Login error: $e');
+      return 'Login failed';
     }
   }
 
@@ -80,8 +133,50 @@ class AuthService extends ChangeNotifier {
     try {
       await _auth.sendPasswordResetEmail(email: email);
       return null;
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'user-not-found') return 'No user found with this email';
+      if (e.code == 'invalid-email') return 'Invalid email address';
+      return e.message ?? 'Failed to send reset email';
     } catch (e) {
       return 'Failed to send reset email';
+    }
+  }
+
+  // Change password (requires current password verification)
+  Future<String?> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null || user.email == null) {
+        return 'No user logged in';
+      }
+
+      // Re-authenticate user with current password
+      final credential = EmailAuthProvider.credential(
+        email: user.email!,
+        password: currentPassword,
+      );
+
+      await user.reauthenticateWithCredential(credential);
+
+      // Update password
+      await user.updatePassword(newPassword);
+
+      return null;
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'wrong-password') return 'Current password is incorrect';
+      if (e.code == 'invalid-credential') return 'Current password is incorrect';
+      if (e.code == 'weak-password') return 'New password is too weak';
+      if (e.code == 'requires-recent-login') return 'Please logout and login again to change password';
+      return e.message ?? 'Failed to change password';
+    } catch (e) {
+      debugPrint('Change password error: $e');
+      if (e.toString().contains('invalid-credential') || e.toString().contains('INVALID_LOGIN_CREDENTIALS')) {
+        return 'Current password is incorrect';
+      }
+      return 'Failed to change password';
     }
   }
 }

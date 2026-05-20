@@ -8,11 +8,19 @@ import 'services/attendance_service.dart';
 import 'services/statistics_service.dart';
 import 'services/marks_service.dart';
 import 'services/profile_service.dart';
+import 'services/demo_service.dart';
+import 'services/subscription_service.dart';
+import 'services/device_service.dart';
 import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
 import 'screens/home_screen_new.dart';
 import 'screens/statistics_selection_screen.dart';
 import 'screens/attendance_calendar_screen.dart';
+import 'screens/payment_screen.dart';
+import 'screens/admin_panel_screen.dart';
+import 'screens/account_type_selection_screen.dart';
+import 'screens/organization_payment_screen.dart';
+import 'screens/organization_admin_screen.dart';
 import 'models/class_model.dart';
 import 'utils/app_theme.dart';
 import 'screens/attendance_selection_screen.dart';
@@ -37,6 +45,9 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => StatisticsService()),
         ChangeNotifierProvider(create: (_) => MarksService()),
         ChangeNotifierProvider(create: (_) => ProfileService()),
+        ChangeNotifierProvider(create: (_) => DemoService()),
+        ChangeNotifierProvider(create: (_) => SubscriptionService()),
+        ChangeNotifierProvider(create: (_) => DeviceService()),
       ],
       child: MaterialApp(
         title: 'Edu Manager',
@@ -49,8 +60,23 @@ class MyApp extends StatelessWidget {
           '/home': (context) => const HomeScreenNew(),
           '/statistics': (context) => const StatisticsSelectionScreen(),
           '/attendance': (context) => const AttendanceSelectionScreen(),
+          '/account-type': (context) => const AccountTypeSelectionScreen(),
+          // '/payment' handled in onGenerateRoute for pre-fill support
+          '/organization-payment': (context) => const OrganizationPaymentScreen(),
+          '/admin': (context) => const AdminPanelScreen(),
+          '/organization-admin': (context) => const OrganizationAdminScreen(),
         },
         onGenerateRoute: (settings) {
+          if (settings.name == '/payment') {
+            final args = settings.arguments as Map<String, String?>?;
+            return MaterialPageRoute(
+              builder: (context) => PaymentScreen(
+                prefillName: args?['name'],
+                prefillEmail: args?['email'],
+                prefillPhone: args?['phone'],
+              ),
+            );
+          }
           if (settings.name == '/attendance') {
             final classItem = settings.arguments as ClassModel;
             return MaterialPageRoute(
